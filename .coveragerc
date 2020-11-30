@@ -1,0 +1,4 @@
+[run]
+  source = tf2marl
+  omit =
+    */multiagent/*
