@@ -11,8 +11,6 @@ def space_n_to_shape_n(space_n):
 def space_to_shape(space):
     """
     Takes a gym.space and returns its shape
-    :param space:
-    :return: Shape of the gym space
     """
     if isinstance(space, Box):
         return space.shape
@@ -56,14 +54,14 @@ def clip_by_local_norm(gradients, norm):
 
 
 class FakeRun(object):
-    """
-    A fake run object as sacred uses, meant to be used as a replacement in unit test.
-    """
     def __init__(self):
+        """
+        A fake run object as sacred uses, meant to be used as a replacement in unit test.
+        """
         self.counter = 0
 
     def log_scalar(self, name, val, step):
-        self.counter +=1
+        self.counter += 1
 
 
 def softmax_to_argmax(action_n, agents):

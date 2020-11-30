@@ -33,7 +33,7 @@ def train_config():
     # Logging
     exp_name = 'default'            # name for logging
 
-    display = True                  # render environment
+    display = False                 # render environment
     restore_fp = None               # path to restore models from, e.g.
                                     # 'results/sacred/182/models', or None to train a new model
     save_rate = 10                  # frequency to save policy as number of episodes

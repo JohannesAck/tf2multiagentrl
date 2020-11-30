@@ -1,4 +1,7 @@
-
+"""
+This file implements the replay buffer. It is based on the replay buffer from
+stable-baselines, with some changes.
+"""
 import random
 
 import numpy as np
@@ -6,10 +9,10 @@ import numpy as np
 from tf2marl.common.segment_tree import MinSegmentTree, SumSegmentTree
 
 
-# noinspection SpellCheckingInspection
 class ReplayBuffer(object):
     def __init__(self, size):
-        """Create Prioritized Replay buffer.
+        """
+        Create Prioritized Replay buffer.
 
         Parameters
         ----------
@@ -146,7 +149,8 @@ class EfficientReplayBuffer(object):
             self._next_idx = (self._next_idx + 1) % self._maxsize
 
     def sample(self, batch_size):
-        """Sample a batch of experiences.
+        """
+        Sample a batch of experiences.
 
         Parameters
         ----------
@@ -184,6 +188,7 @@ class EfficientReplayBuffer(object):
         done = self._done[indices]
         return obs_n, acts_n, rew, next_obs_n, done
 
+
 class PrioritizedReplayBuffer(EfficientReplayBuffer):
     def __init__(self, size, n_agents, obs_shape_n, act_shape_n, alpha):
         super(PrioritizedReplayBuffer, self).__init__(size, n_agents, obs_shape_n, act_shape_n)
@@ -211,7 +216,7 @@ class PrioritizedReplayBuffer(EfficientReplayBuffer):
     def _sample_indices_proportional(self, batch_size):
         indices = []
         for batch_idx in range(batch_size):
-            mass = random.random() * self._it_sum.sum(0, len(self) - 1)  # todo check why this works
+            mass = random.random() * self._it_sum.sum(0, len(self) - 1)
             idx = self._it_sum.find_prefixsum_idx(mass)
             indices.append(idx)
         return indices

@@ -1,0 +1,6 @@
+# Results are stored here
+# Ignore everything in this directory
+*
+
+!.gitignore
+
