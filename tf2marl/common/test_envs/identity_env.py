@@ -1,8 +1,7 @@
 import numpy as np
-import tensorflow as tf
 from tensorflow.keras.utils import to_categorical
 from gym import Env
-from gym.spaces import Discrete, MultiDiscrete, Box
+from gym.spaces import Discrete, Box
 
 
 

@@ -1,9 +1,7 @@
 import numpy as np
 import tensorflow as tf
-import os
 
 from gym import Space
-from gym.spaces import Discrete
 
 from tf2marl.agents.AbstractAgent import AbstractAgent
 from tf2marl.agents.maddpg import MADDPGCriticNetwork, MADDPGPolicyNetwork

@@ -4,7 +4,7 @@ import numpy as np
 
 from tf2marl.agents import MAD3PGAgent
 from tf2marl.common.util import FakeRun
-from tf2marl.common.test_envs.identity_env import IdentityEnv, IdentityEnvBox
+from tf2marl.common.test_envs.identity_env import IdentityEnv  # , IdentityEnvBox
 from tests.test_agent_env_combination import AgentEnvCombination
 import tensorflow as tf
 

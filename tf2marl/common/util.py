@@ -14,9 +14,9 @@ def space_to_shape(space):
     :param space:
     :return: Shape of the gym space
     """
-    if type(space) is Box:
+    if isinstance(space, Box):
         return space.shape
-    elif type(space) is Discrete:
+    elif isinstance(space, Discrete):
         return [space.n]
     else:
         raise RuntimeError("Unknown space type. Can't return shape.")

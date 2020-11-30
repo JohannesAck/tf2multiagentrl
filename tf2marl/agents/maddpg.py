@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-import os
 
 from gym import Space
 from gym.spaces import Discrete
