@@ -1,5 +1,6 @@
 [![Build Status](https://travis-ci.com/JohannesAck/tf2multiagentrl.svg?branch=main)](https://travis-ci.com/JohannesAck/tf2multiagentrl)
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/f047411b259245f28c60095cc8e44250)](https://app.codacy.com/gh/JohannesAck/tf2multiagentrl?utm_source=github.com&utm_medium=referral&utm_content=JohannesAck/tf2multiagentrl&utm_campaign=Badge_Grade)
+[![Codacy Badge](https://app.codacy.com/project/badge/Coverage/caf7f96ddc1d4bc6871d3999bfc63ecc)](https://www.codacy.com/gh/JohannesAck/tf2multiagentrl/dashboard?utm_source=github.com&utm_medium=referral&utm_content=JohannesAck/tf2multiagentrl&utm_campaign=Badge_Coverage)
 
 # TensorFlow 2 Implementation of Multi-Agent Reinforcement Learning Approaches 
 
