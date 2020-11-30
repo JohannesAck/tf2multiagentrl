@@ -20,7 +20,7 @@ This repository contains a modular TF2 implementations of multi-agent versions o
 We provide the code for the agents in tf2marl/agents and a finished training loop with logging
 powered by sacred in train.py.
 
-We denote vectors/lists of states or actions corresponding to each agent with the suffix `_n`, i.e.
+We denote lists of variables corresponding to each agent with the suffix `_n`, i.e.
 `state_n` contains a list of n state batches, one for each agent. 
 
 ## Useage
