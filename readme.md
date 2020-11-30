@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.com/JohannesAck/tf2marl.svg?branch=master)](https://travis-ci.com/JohannesAck/tf2marl)
+
 # TensorFlow 2 Implementation of Multi-Agent Reinforcement Learning Approaches 
 
 This repository contains a modular TF2 implementations of multi-agent versions of the RL methods DDPG 
