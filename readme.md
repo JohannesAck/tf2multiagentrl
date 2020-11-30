@@ -1,5 +1,7 @@
 # TensorFlow 2 Implementation of Multi-Agent Reinforcement Learning Approaches 
 
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/f047411b259245f28c60095cc8e44250)](https://app.codacy.com/gh/JohannesAck/tf2multiagentrl?utm_source=github.com&utm_medium=referral&utm_content=JohannesAck/tf2multiagentrl&utm_campaign=Badge_Grade)
+
 This repository contains a modular TF2 implementations of multi-agent versions of the RL methods DDPG 
 ([MADDPG](https://arxiv.org/abs/1706.02275)),
  TD3 ([MATD3](https://arxiv.org/abs/1910.01465)),
