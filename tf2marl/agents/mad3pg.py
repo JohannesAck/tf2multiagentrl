@@ -4,6 +4,7 @@ from gym import Space
 from gym.spaces import Discrete
 
 from tf2marl.agents.AbstractAgent import AbstractAgent
+from tf2marl.agents.maddpg import MADDPGCriticNetwork, MADDPGPolicyNetwork
 from tf2marl.common.util import space_n_to_shape_n, clip_by_local_norm
 
 
@@ -12,8 +13,10 @@ class MAD3PGAgent(AbstractAgent):
                  tau, prioritized_replay=False, alpha=0.6, max_step=None, initial_beta=0.6, prioritized_replay_eps=1e-6,
                  _run=None, num_atoms=51, min_val=-150, max_val=0):
         """
-        An object containing critic, actor and training functions.
-        :param num_layer:
+        Implementation of a Multi-Agent version of D3PG (Distributed Deep Deterministic Policy
+        Gradient).
+
+        num_atoms, min_val and max_val control the parametrization of the value function.
         """
         self._run = _run
 
@@ -28,9 +31,9 @@ class MAD3PGAgent(AbstractAgent):
         self.critic_target = CatDistCritic(2, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index, num_atoms, min_val, max_val)
         self.critic_target.model.set_weights(self.critic.model.get_weights())
 
-        self.policy = MAD3PGPolicyNetwork(2, num_units, lr, obs_shape_n, act_shape_n[agent_index], act_type, 1,
+        self.policy = MADDPGPolicyNetwork(2, num_units, lr, obs_shape_n, act_shape_n[agent_index], act_type, 1,
                                           self.critic, agent_index)
-        self.policy_target = MAD3PGPolicyNetwork(2, num_units, lr, obs_shape_n, act_shape_n[agent_index], act_type, 1,
+        self.policy_target = MADDPGPolicyNetwork(2, num_units, lr, obs_shape_n, act_shape_n[agent_index], act_type, 1,
                                                  self.critic, agent_index)
         self.policy_target.model.set_weights(self.policy.model.get_weights())
 
@@ -169,7 +172,7 @@ class MAD3PGAgent(AbstractAgent):
         self.policy.model.load_weights(fp + 'policy.h5')
         self.policy_target.model.load_weights(fp + 'policy_target.h5')
 
-class CatDistCritic(object):
+class CatDistCritic(MADDPGCriticNetwork):
     def __init__(self, num_hidden_layers, units_per_layer, lr, obs_n_shape, act_shape_n, act_type, agent_index,
                  n_atoms, min_val, max_val):
         """
@@ -177,40 +180,17 @@ class CatDistCritic(object):
         D4PG and the original Bellemare Distributional paper.
         regression ANN.
         """
-        self.num_layers = num_hidden_layers
-        self.lr = lr
-        self.obs_shape_n = obs_n_shape
-        self.act_shape_n = act_shape_n
-        self.act_type = act_type
+        super().__init__(num_hidden_layers, units_per_layer, lr, obs_n_shape, act_shape_n,
+                         act_type, agent_index)
         self.n_atoms = n_atoms
         self.atoms = np.linspace(min_val, max_val, n_atoms)
         self.delta_atom = (max_val - min_val) / (n_atoms - 1)
         self.min_val = min_val
         self.max_val = max_val
 
-        self.clip_norm = 0.5
-        self.optimizer = tf.keras.optimizers.Adam(lr=self.lr)
-
-        # set up layers
-        # each agent's action and obs are treated as separate inputs
-        self.obs_input_n = []
-        for idx, shape in enumerate(self.obs_shape_n):
-            self.obs_input_n.append(tf.keras.layers.Input(shape=shape, name='obs_in' + str(idx)))
-
-        self.act_input_n = []
-        for idx, shape in enumerate(self.act_shape_n):
-            self.act_input_n.append(tf.keras.layers.Input(shape=shape, name='act_in' + str(idx)))
-
-        self.input_concat_layer = tf.keras.layers.Concatenate()
-
-        self.hidden_layers = []
-        for idx in range(num_hidden_layers):
-            layer = tf.keras.layers.Dense(units_per_layer, activation='relu',
-                                          name='ag{}crit_hid{}'.format(agent_index, idx))
-            self.hidden_layers.append(layer)
-
+        # replace output layer from normal critic
         self.output_layer = tf.keras.layers.Dense(self.n_atoms, activation='softmax',
-                                                  name='ag{}crit_out{}'.format(agent_index, idx))
+                                                  name='ag{}crit_out'.format(agent_index))
 
         # connect layers
         x = self.input_concat_layer(self.obs_input_n + self.act_input_n)
@@ -226,21 +206,27 @@ class CatDistCritic(object):
         """
         Return the probabilities for the given input.
         """
-        return self._predict_internal(obs_n + act_n)
+        return self._predict_internal_probs(obs_n + act_n)
 
     def predict_expectation(self, obs_n, act_n):
         """
         Predict the expectation of the distribution for given input.
         """
-        probs = self._predict_internal(obs_n + act_n)
-        dist = probs * self.atoms
-        return tf.math.reduce_sum(dist, 1)
-
+        return self._predict_internal(obs_n + act_n)
 
     @tf.function
     def _predict_internal(self, concatenated_input):
         """
-        Internal function, because concatenation can not be done in tf.function
+        Returns the expected value, i.e. sums up the probs * values.
+        """
+        probs = self._predict_internal_probs(concatenated_input)
+        dist = probs * self.atoms
+        return tf.math.reduce_sum(dist, 1)
+
+    @tf.function
+    def _predict_internal_probs(self, concatenated_input):
+        """
+        Returns the probabilities for a given batch of inputs.
         """
         x = self.input_concat_layer(concatenated_input)
         for idx in range(self.num_layers):
@@ -251,26 +237,24 @@ class CatDistCritic(object):
 
     def train_step(self, obs_n, act_n, target_prob, weights):
         """
-        Train the critic network with the observations, actions, rewards and next observations, and next actions.
+        Train the critic network with the observations, actions, rewards and next observations,
+        and next actions.
         """
         return self._train_step_internal(obs_n + act_n, target_prob, weights)
 
     @tf.function
     def _train_step_internal(self, concatenated_input, target_prob, weights):
         """
-        Internal function, because concatenation can not be done inside tf.function
+        Internal function, because concatenation can not be done inside tf.function.
         """
         with tf.GradientTape(persistent=True) as tape:
             x = self.input_concat_layer(concatenated_input)
             for idx in range(self.num_layers):
                 x = self.hidden_layers[idx](x)
             x = self.output_layer(x)
-            # q_pred = tf.math.softmax(x)
             q_pred = x
 
             crossent_loss = tf.losses.binary_crossentropy(target_prob, q_pred)
-            # crossent_loss = -tf.math.reduce_sum(tf.math.log(target_prob + 1e-16) * q_pred, 1)
-            #loss = tf.reduce_mean(crossent_loss * weights)
             loss = crossent_loss
 
         gradients = tape.gradient(loss, self.model.trainable_variables)
@@ -279,98 +263,3 @@ class CatDistCritic(object):
         self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
 
         return crossent_loss
-
-
-class MAD3PGPolicyNetwork(object):
-    def __init__(self, num_layers, units_per_layer, lr, obs_n_shape, act_shape, act_type,
-                 gumbel_temperature, q_network, agent_index):
-        """
-        Implementation of the policy network, with optional gumbel softmax activation at the final layer.
-        """
-        self.num_layers = num_layers
-        self.lr = lr
-        self.obs_n_shape = obs_n_shape
-        self.act_shape = act_shape
-        self.act_type = act_type
-        if act_type is Discrete:
-            self.use_gumbel = True
-        else:
-            self.use_gumbel = False
-        self.gumbel_temperature = gumbel_temperature
-        self.q_network = q_network
-        self.agent_index = agent_index
-        self.clip_norm = 0.5
-
-        self.optimizer = tf.keras.optimizers.Adam(lr=self.lr)
-
-        ### set up network structure
-        self.obs_input = tf.keras.layers.Input(shape=self.obs_n_shape[agent_index])
-
-        self.hidden_layers = []
-        for idx in range(num_layers):
-            layer = tf.keras.layers.Dense(units_per_layer, activation='relu',
-                                          name='ag{}pol_hid{}'.format(agent_index, idx))
-            self.hidden_layers.append(layer)
-
-        if self.use_gumbel:
-            self.output_layer = tf.keras.layers.Dense(self.act_shape, activation='linear',
-                                                      name='ag{}pol_out{}'.format(agent_index, idx))
-        else:
-            self.output_layer = tf.keras.layers.Dense(self.act_shape, activation='tanh',
-                                                      name='ag{}pol_out{}'.format(agent_index, idx))
-
-        # connect layers
-        x = self.obs_input
-        for layer in self.hidden_layers:
-            x = layer(x)
-        x = self.output_layer(x)
-
-        self.model = tf.keras.Model(inputs=[self.obs_input], outputs=[x])
-
-    @classmethod
-    def gumbel_softmax_sample(cls, logits):
-        """
-        Produces Gumbel softmax samples from the input log-probabilities (logits).
-        These are used, because they are differentiable approximations of the distribution of an argmax.
-        """
-        uniform_noise = tf.random.uniform(tf.shape(logits))
-        gumbel = -tf.math.log(-tf.math.log(uniform_noise))
-        noisy_logits = gumbel + logits  # / temperature
-        return tf.math.softmax(noisy_logits)
-
-    @tf.function
-    def get_action(self, obs):
-        x = obs
-        for idx in range(self.num_layers):
-            x = self.hidden_layers[idx](x)
-        outputs = self.output_layer(x)  # log probabilities of the gumbel softmax dist are the output of the network
-
-        if self.use_gumbel:
-            samples = self.gumbel_softmax_sample(outputs)
-            return samples
-        else:
-            return outputs
-
-    @tf.function
-    def train(self, obs_n, act_n):
-        with tf.GradientTape() as tape:
-            x = obs_n[self.agent_index]
-            for idx in range(self.num_layers):
-                x = self.hidden_layers[idx](x)
-            x = self.output_layer(x)
-            act_n = tf.unstack(act_n)
-            if self.use_gumbel:
-                logits = x  # log probabilities of the gumbel softmax dist are the output of the network
-                act_n[self.agent_index] = self.gumbel_softmax_sample(logits)
-                # act_n = tf.stack(act_n)
-            else:
-                act_n[self.agent_index] = x
-            q_value = self.q_network.predict_expectation(obs_n, act_n)
-            policy_regularization = tf.math.reduce_mean(tf.math.square(x))
-            loss = -tf.math.reduce_mean(q_value) + 1e-3 * policy_regularization  # gradient plus regularization
-
-        gradients = tape.gradient(loss, self.model.trainable_variables)  # todo not sure if this really works
-        # gradients = tf.clip_by_global_norm(gradients, self.clip_norm)[0]
-        gradients = clip_by_local_norm(gradients, self.clip_norm)
-        self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
-        return loss

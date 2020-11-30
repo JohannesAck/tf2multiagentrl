@@ -13,8 +13,7 @@ class MADDPGAgent(AbstractAgent):
                  tau, prioritized_replay=False, alpha=0.6, max_step=None, initial_beta=0.6, prioritized_replay_eps=1e-6,
                  _run=None):
         """
-        An object containing critic, actor and training functions.
-        :param num_layer:
+        An object containing critic, actor and training functions for Multi-Agent DDPG.
         """
         self._run = _run
 
@@ -25,13 +24,13 @@ class MADDPGAgent(AbstractAgent):
                          prioritized_replay_eps=prioritized_replay_eps)
 
         act_type = type(act_space_n[0])
-        self.critic = MADDPGCriticNetwork(2, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)
-        self.critic_target = MADDPGCriticNetwork(2, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)
+        self.critic = MADDPGCriticNetwork(num_layer, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)
+        self.critic_target = MADDPGCriticNetwork(num_layer, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)
         self.critic_target.model.set_weights(self.critic.model.get_weights())
 
-        self.policy = MADDPGPolicyNetwork(2, num_units, lr, obs_shape_n, act_shape_n[agent_index], act_type, 1,
+        self.policy = MADDPGPolicyNetwork(num_layer, num_units, lr, obs_shape_n, act_shape_n[agent_index], act_type, 1,
                                           self.critic, agent_index)
-        self.policy_target = MADDPGPolicyNetwork(2, num_units, lr, obs_shape_n, act_shape_n[agent_index], act_type, 1,
+        self.policy_target = MADDPGPolicyNetwork(num_layer, num_units, lr, obs_shape_n, act_shape_n[agent_index], act_type, 1,
                                                  self.critic, agent_index)
         self.policy_target.model.set_weights(self.policy.model.get_weights())
 
@@ -175,31 +174,31 @@ class MADDPGPolicyNetwork(object):
         noisy_logits = gumbel + logits  # / temperature
         return tf.math.softmax(noisy_logits)
 
-    @tf.function
-    def get_action(self, obs):
+    def forward_pass(self, obs):
+        """
+        Performs a simple forward pass through the NN.
+        """
         x = obs
         for idx in range(self.num_layers):
             x = self.hidden_layers[idx](x)
         outputs = self.output_layer(x)  # log probabilities of the gumbel softmax dist are the output of the network
+        return outputs
 
+    @tf.function
+    def get_action(self, obs):
+        outputs = self.forward_pass(obs)
         if self.use_gumbel:
-            samples = self.gumbel_softmax_sample(outputs)
-            return samples
-        else:
-            return outputs
+            outputs = self.gumbel_softmax_sample(outputs)
+        return outputs
 
     @tf.function
     def train(self, obs_n, act_n):
         with tf.GradientTape() as tape:
-            x = obs_n[self.agent_index]
-            for idx in range(self.num_layers):
-                x = self.hidden_layers[idx](x)
-            x = self.output_layer(x)
+            x = self.forward_pass(obs_n[self.agent_index])
             act_n = tf.unstack(act_n)
             if self.use_gumbel:
                 logits = x  # log probabilities of the gumbel softmax dist are the output of the network
                 act_n[self.agent_index] = self.gumbel_softmax_sample(logits)
-                # act_n = tf.stack(act_n)
             else:
                 act_n[self.agent_index] = x
             q_value = self.q_network._predict_internal(obs_n + act_n)

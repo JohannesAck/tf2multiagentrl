@@ -13,8 +13,7 @@ class MATD3Agent(AbstractAgent):
                  tau, prioritized_replay=False, alpha=0.6, max_step=None, initial_beta=0.6, prioritized_replay_eps=1e-6,
                  policy_update_freq=2, target_policy_smoothing_eps=0.0, _run=None):
         """
-        An object containing critic, actor and training functions.
-        :param num_layer:
+        An object containing critic, actor and training functions for Multi-Agent TD3.
         """
         self._run = _run
         assert isinstance(obs_space_n[0], Space)
@@ -125,7 +124,6 @@ class MATD3Agent(AbstractAgent):
             policy_loss = None
         self._run.log_scalar('agent_{}.train.q_loss0'.format(self.agent_index), np.mean(td_loss[0]), step)
         self._run.log_scalar('agent_{}.train.q_loss1'.format(self.agent_index), np.mean(td_loss[1]), step)
-        # print('td_losses', np.mean(td_loss[0]), np.mean(td_loss[1]))
 
         return [td_loss, policy_loss]
 

@@ -4,7 +4,7 @@ import tensorflow as tf
 from gym import Space
 
 from tf2marl.agents.AbstractAgent import AbstractAgent
-from tf2marl.agents.maddpg import MADDPGCriticNetwork
+from tf2marl.agents.maddpg import MADDPGCriticNetwork, MADDPGPolicyNetwork
 from tf2marl.common.util import space_n_to_shape_n, clip_by_local_norm
 
 
@@ -34,20 +34,21 @@ class MASACAgent(AbstractAgent):
                          prioritized_replay_eps=prioritized_replay_eps)
 
         act_type = type(act_space_n[0])
-        self.critic_1 = MADDPGCriticNetwork(2, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)
-        self.critic_1_target = MADDPGCriticNetwork(2, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)
+        self.critic_1 = MADDPGCriticNetwork(num_layer, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)
+        self.critic_1_target = MADDPGCriticNetwork(num_layer, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)
         self.critic_1_target.model.set_weights(self.critic_1.model.get_weights())
-        self.critic_2 = MADDPGCriticNetwork(2, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)
-        self.critic_2_target = MADDPGCriticNetwork(2, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)
+        self.critic_2 = MADDPGCriticNetwork(num_layer, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)
+        self.critic_2_target = MADDPGCriticNetwork(num_layer, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)
         self.critic_2_target.model.set_weights(self.critic_2.model.get_weights())
 
-        self.v_network = ValueFunctionNetwork(2, num_units, lr, obs_shape_n, agent_index)  # unused
-        self.v_network_target = ValueFunctionNetwork(2, num_units, lr, obs_shape_n, agent_index)  # unused
+        # this was proposed to be used in the original SAC paper but later they got rid of it again
+        self.v_network = ValueFunctionNetwork(num_layer, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)  # unused
+        self.v_network_target = ValueFunctionNetwork(num_layer, num_units, lr, obs_shape_n, act_shape_n, act_type, agent_index)  # unused
         self.v_network_target.model.set_weights(self.v_network.model.get_weights())  # unused
 
-        self.policy = MASACPolicyNetwork(2, num_units, lr, obs_shape_n, act_shape_n[agent_index], act_type, 1, entropy_coeff,
+        self.policy = MASACPolicyNetwork(num_layer, num_units, lr, obs_shape_n, act_shape_n[agent_index], act_type, 1, entropy_coeff,
                                          agent_index, self.critic_1, use_gauss_policy, use_gumbel, prioritized_replay_eps)
-        self.policy_target = MASACPolicyNetwork(2, num_units, lr, obs_shape_n, act_shape_n[agent_index], act_type, 1, entropy_coeff,
+        self.policy_target = MASACPolicyNetwork(num_layer, num_units, lr, obs_shape_n, act_shape_n[agent_index], act_type, 1, entropy_coeff,
                                          agent_index, self.critic_1, use_gauss_policy, use_gumbel, prioritized_replay_eps)
         self.policy_target.model.set_weights(self.policy.model.get_weights())
 
@@ -187,21 +188,17 @@ class MASACAgent(AbstractAgent):
         self.policy_target.model.load_weights(fp + 'policy_target.h5')
 
 
-class ValueFunctionNetwork(object):
-    def __init__(self, num_hidden_layers, units_per_layer, lr, obs_n_shape, agent_index):
+class ValueFunctionNetwork(MADDPGCriticNetwork):
+    def __init__(self, num_hidden_layers, units_per_layer, lr, obs_n_shape, act_shape_n, act_type,
+                 agent_index):
         """
-        Implementation of a critic to represent the Q-Values. Basically just a fully-connected
-        regression ANN.
+        Implementation of a critic to represent the Value function. Almost the same
+        as the critic network in MADDPG, but only uses one input.
         """
-        self.num_layers = num_hidden_layers
-        self.lr = lr
-        self.obs_shape_n = obs_n_shape
+        super().__init__(num_hidden_layers, units_per_layer, lr, obs_n_shape,
+                         act_shape_n, act_type, agent_index)
 
-        self.clip_norm = 0.5
-        self.optimizer = tf.keras.optimizers.Adam(lr=self.lr)
-
-        # set up layers
-        # each agent's action and obs are treated as separate inputs
+        # replace network structure
         self.obs_input_n = []
         for idx, shape in enumerate(self.obs_shape_n):
             self.obs_input_n.append(tf.keras.layers.Input(shape=shape, name='obs_in' + str(idx)))
@@ -226,17 +223,11 @@ class ValueFunctionNetwork(object):
         self.model = tf.keras.Model(inputs=self.obs_input_n, outputs=[x])
         self.model.compile(self.optimizer, loss='mse')
 
-    @tf.function
     def predict(self, obs_n):
         """
         Predict the value of the given state.
         """
-        x = self.input_concat_layer(obs_n) if len(obs_n) > 1 else obs_n[0]
-        for idx in range(self.num_layers):
-            x = self.hidden_layers[idx](x)
-        x = self.output_layer(x)
-        return x
-
+        return self._predict_internal(obs_n)
 
     @tf.function
     def train_step(self, obs_n, target, weights):
@@ -259,25 +250,18 @@ class ValueFunctionNetwork(object):
 
         return td_loss
 
-class MASACPolicyNetwork(object):
+class MASACPolicyNetwork(MADDPGPolicyNetwork):
     def __init__(self, num_layers, units_per_layer, lr, obs_n_shape, act_shape, act_type,
-                 gumbel_temperature, entropy_coeff, agent_index, critic_network, use_gaussian, use_gumbel,
+                 gumbel_temperature, entropy_coeff, agent_index, q_network, use_gaussian, use_gumbel,
                  numeric_eps):
         """
-        Implementation of the policy network, with optional gumbel softmax activation at the final layer.
+        Implementation of the policy network, with optional gumbel softmax activation at the final
+        layer. Currently only implemented for discrete spaces with a gumbel policy.
         """
-        self.num_layers = num_layers
-        self.lr = lr
-        self.obs_n_shape = obs_n_shape
-        self.act_shape = act_shape
-        self.act_type = act_type
-        self.use_gaussian = use_gaussian
-        self.use_gumbel = use_gumbel
-        self.gumbel_temperature = gumbel_temperature
+        super().__init__(num_layers, units_per_layer, lr, obs_n_shape, act_shape, act_type,
+                         gumbel_temperature, q_network, agent_index)
+        self.use_gaussian = not self.use_gumbel
         self.entropy_coeff = entropy_coeff
-        self.agent_index = agent_index
-        self.critic_network = critic_network
-        self.clip_norm = 0.5
         self.numeric_eps = numeric_eps
 
         self.optimizer = tf.keras.optimizers.Adam(lr=self.lr)
@@ -306,27 +290,6 @@ class MASACPolicyNetwork(object):
 
         self.model = tf.keras.Model(inputs=[self.obs_input], outputs=[x])
 
-    @classmethod
-    def gumbel_softmax_sample(cls, logits):
-        """
-        Produces Gumbel softmax samples from the input log-probabilities (logits).
-        These are used, because they are differentiable approximations of the distribution of an argmax.
-        """
-        uniform_noise = tf.random.uniform(tf.shape(logits))
-        gumbel = -tf.math.log(-tf.math.log(uniform_noise))
-        noisy_logits = gumbel + logits  # / temperature
-        return tf.math.softmax(noisy_logits)
-
-    # @classmethod
-    # def gumbel_softmax_log_prob(cls, logits, action):
-    #     """
-    #     https://github.com/kengz/SLM-Lab/blob/7a0f9748aaa8e982f171e3d09799fe061e0dd27a/slm_lab/lib/distribution.py
-    #     :param logits:
-    #     :param action:
-    #     :return:
-    #     """
-    #     return -tf.math.reduce_sum(-action * tf.math.log_softmax(logits, 1), 1)
-
     @tf.function
     def get_all_action_probs(self, obs):
         """
@@ -334,7 +297,6 @@ class MASACPolicyNetwork(object):
         """
         logits = self.forward_pass(obs)
         return tf.math.softmax(logits)
-
 
     @classmethod
     def gaussian_sample(cls, logits):
@@ -354,29 +316,6 @@ class MASACPolicyNetwork(object):
         :return:
         """
         logits = self.forward_pass(obs)
-        if self.use_gumbel:
-            return self.gumbel_softmax_log_prob(logits, action)
-        elif self.use_gaussian:
-            return self.gaussian_prob(logits, action)
-
-    @tf.function
-    def get_action(self, obs):
-        output = self.forward_pass(obs)
-        if self.use_gumbel:
-            samples = self.gumbel_softmax_sample(output)
-        elif self.use_gaussian:
-            samples = self.gaussian_sample(output)
-        return samples
-
-    def forward_pass(self, obs):
-        """
-        Performs a simple forward pass through the NN.
-        """
-        x = obs
-        for idx in range(self.num_layers):
-            x = self.hidden_layers[idx](x)
-        outputs = self.output_layer(x)  # log probabilities of the gumbel softmax dist are the output of the network
-        return outputs
 
     @tf.function
     def train(self, obs_n, act_n):
@@ -395,12 +334,11 @@ class MASACPolicyNetwork(object):
                 logits = x
                 act_n[self.agent_index] = self.gaussian_sample(logits)
                 entropy = - self.action_logprob(obs_n[self.agent_index], act_n[self.agent_index])
-            q_value = self.critic_network._predict_internal(obs_n + act_n)
+            q_value = self.q_network._predict_internal(obs_n + act_n)
 
-            # policy_regularization = tf.math.reduce_mean(tf.math.square(x))
-            loss = -tf.math.reduce_mean(q_value + self.entropy_coeff * entropy)# + \1e-3 * policy_regularization  # gradient plus regularization
+            loss = -tf.math.reduce_mean(q_value + self.entropy_coeff * entropy)
 
-        gradients = tape.gradient(loss, self.model.trainable_variables)  # todo not sure if this really works
+        gradients = tape.gradient(loss, self.model.trainable_variables)
         local_clipped = clip_by_local_norm(gradients, self.clip_norm)
         self.optimizer.apply_gradients(zip(local_clipped, self.model.trainable_variables))
         return loss
