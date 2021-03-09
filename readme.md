@@ -36,7 +36,7 @@ python train.py
 As we use [sacred](https://github.com/IDSIA/sacred) for configuration management and logging, 
 the configuration can be updated with their CLI, i.e.
 ```
-python train.py with scenarion_name='simple_spread' num_units=128 num_episodes=10000
+python train.py with scenario_name='simple_spread' num_units=128 num_episodes=10000
 ```
 and experiments are automatically logged to `results/sacred/`, or optionally also to a MongoDB.
 To observe this database we recommend to use [Omniboard](https://github.com/vivekratnavel/omniboard).
