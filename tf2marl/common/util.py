@@ -1,6 +1,7 @@
 import numpy as np
-from gym.spaces import Box, Discrete
+from gym.spaces import Box, Discrete, Tuple
 import tensorflow as tf
+from tf2marl.multiagent.multi_discrete import MultiDiscrete
 
 def space_n_to_shape_n(space_n):
     """
@@ -16,8 +17,14 @@ def space_to_shape(space):
         return space.shape
     elif isinstance(space, Discrete):
         return [space.n]
+    elif isinstance(space, MultiDiscrete):
+        return [sum(space.high - space.low + 1)]
+    elif isinstance(space, Tuple):
+        # Assuming each element in the tuple is a Discrete space
+        # Modify this logic if your Tuple spaces have different structures
+        return [sum(element.n for element in space.spaces)]
     else:
-        raise RuntimeError("Unknown space type. Can't return shape.")
+        raise RuntimeError(f"Unknown space type: {type(space)}. Can't return shape.")
 
 
 class LinearSchedule(object):
